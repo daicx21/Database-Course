@@ -6,7 +6,7 @@
 #include "common/logging.hpp"
 #include "storage.hpp"
 #include "catalog/schema.hpp"
-
+#include <iostream>
 #include <compare>
 
 namespace wing {
@@ -243,7 +243,6 @@ class BPlusTreeStorage {
     tree_t tree = tree_t::Create(*pgm_);
     auto blob = Blob::Create(*pgm_);
     blob.Rewrite(serde::bin_stream::to_string(schema));
-
     TableMetaPages meta{
       .data = tree.MetaPageID(),
       .schema = blob.MetaPageID(),
