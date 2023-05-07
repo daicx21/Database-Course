@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <optional>
 #include <stack>
+#include <vector>
+#include <iostream>
 
 #include "page-manager.hpp"
 
@@ -65,6 +67,14 @@ static inline size_t InnerSlotSize(InnerSlot slot) {
 // the memory area starting with "addr".
 void InnerSlotSerialize(char *addr, InnerSlot slot);
 
+inline std::string_view gao1(InnerSlot slot)
+{
+  int len=InnerSlotSize(slot);
+  char *str=new char[len];
+  InnerSlotSerialize(str,slot);
+  return std::string_view(str,len);
+}
+
 // Parsed leaf slot
 struct LeafSlot {
   std::string_view key;
@@ -81,8 +91,17 @@ static inline size_t LeafSlotSize(LeafSlot slot) {
 // the memory area starting with "addr".
 void LeafSlotSerialize(char *addr, LeafSlot slot);
 
+inline std::string_view gao2(LeafSlot slot)
+{
+  int len=LeafSlotSize(slot);
+  char *str=new char[len];
+  LeafSlotSerialize(str,slot);
+  return std::string_view(str,len);
+}
+
 template <typename Compare>
 class BPlusTree {
+   friend class Iter;
  private:
   using Self = BPlusTree<Compare>;
   class LeafSlotKeyCompare;
@@ -94,111 +113,397 @@ class BPlusTree {
     Iter(const Iter&) = delete;
     Iter& operator=(const Iter&) = delete;
     Iter(Iter&& iter) {
-      DB_ERR("Not implemented!");
+      //DB_ERR("Not implemented!");
+      pgid_=iter.pgid_;mxid_=iter.mxid_;
+      now=iter.now;now_mx=iter.now_mx;
+      is_empty=iter.is_empty;
+      hhh=iter.hhh;hh=iter.hh;
+      pg_st=iter.pg_st;now_st=iter.now_st;
+      iter.hhh=nullptr;iter.hh=nullptr;
+      iter.pg_st=nullptr;iter.now_st=nullptr;
     }
+    Iter() { is_empty=true; }
     Iter& operator=(Iter&& iter) {
-      DB_ERR("Not implemented!");
+      //DB_ERR("Not implemented!");
+      pgid_=iter.pgid_;mxid_=iter.mxid_;
+      now=iter.now;now_mx=iter.now_mx;
+      is_empty=iter.is_empty;
+      hhh=iter.hhh;hh=iter.hh;
+      pg_st=iter.pg_st;now_st=iter.now_st;
+      iter.hhh=nullptr;iter.hh=nullptr;
+      iter.pg_st=nullptr;iter.now_st=nullptr;
+      return *this;
     }
+    inline LeafPage GetLeafPage(pgid_t pgid) { return (*hhh).get().GetSortedPage(pgid,LeafSlotKeyCompare((*hh)),LeafSlotCompare((*hh))); }
+    inline pgid_t GetLeafNext(LeafPage& leaf) { return *(pgid_t*)leaf.ReadSpecial(sizeof(pgid_t),sizeof(pgid_t)).data(); }
     // Returns the current key-value pair that this iterator currently points
     // to. If this iterator does not point to any key-value pair, then return
     // std::nullopt. The first std::string_view is the key and the second
     // std::string_view is the value.
-    std::optional<std::pair<std::string_view, std::string_view>> Cur() {
-      DB_ERR("Not implemented!");
+    std::optional<std::pair<std::string_view,std::string_view>> Cur() {
+      if (is_empty) return std::nullopt;
+      std::string_view str(pg_st+*(now_st+now),*(now_st+now-1)-*(now_st+now));
+      LeafSlot slot=LeafSlotParse(str);
+      return std::pair<std::string_view,std::string_view>(slot.key,slot.value);
     }
-    // Make this iterator point to the next key-value pair, or make this
-    // iterator point to nothing if the current key-value pair is the last.
     void Next() {
-      DB_ERR("Not implemented!");
+      if (now<now_mx-1) now++;
+      else
+      {
+        if (pgid_==mxid_) is_empty=true;
+        else
+        {
+          pgid_=*((const pgid_t *)(pg_st+*(now_st-1))+1);
+          auto leaf=GetLeafPage(pgid_);now=0;
+          now_mx=leaf.SlotNum();pg_st=leaf.as_ptr();
+          now_st=(const pgoff_t *)((const slotid_t *)pg_st+1)+1;
+        }
+      }
     }
+    pgid_t pgid_,mxid_;slotid_t now,now_mx;
+    const char *pg_st;
+    const pgoff_t *now_st;
+    bool is_empty;
+    std::reference_wrapper<PageManager> *hhh;
+    Compare *hh;
    private:
   };
-  BPlusTree(const Self&) = delete;
-  Self& operator=(const Self&) = delete;
-  BPlusTree(Self&& rhs)
-    : pgm_(rhs.pgm_), meta_pgid_(rhs.meta_pgid_), comp_(rhs.comp_) {}
+  BPlusTree(const Self&)=delete;
+  Self& operator=(const Self&)=delete;
+  BPlusTree(Self&& rhs):pgm_(rhs.pgm_),meta_pgid_(rhs.meta_pgid_),comp_(rhs.comp_) {}
   Self& operator=(Self&& rhs) {
-    pgm_ = std::move(rhs.pgm_);
-    meta_pgid_ = rhs.meta_pgid_;
-    comp_ = rhs.comp_;
+    pgm_=std::move(rhs.pgm_);
+    meta_pgid_=rhs.meta_pgid_;
+    comp_=rhs.comp_;
     return *this;
   }
-  // Free in-memory resources.
-  ~BPlusTree() {
-    // Do not call Destroy() here.
-    // Normally you don't need to do anything here.
-  }
-  /* Allocate a meta page and initialize an empty B+tree.
-   * The caller may get the meta page ID by BPlusTree::MetaPageID() and
-   * optionally save it somewhere so that the B+tree can be reopened with it
-   * in the future. You don't need to care about the persistency of the meta
-   * page ID here.
-   */
+  ~BPlusTree() {}
   static Self Create(std::reference_wrapper<PageManager> pgm) {
-    Self ret(pgm, pgm.get().Allocate(), Compare());
-    // Initialize the tree here.
-    DB_ERR("Not implemented!");
+    Self ret(pgm,pgm.get().Allocate(),Compare());
+    ret.UpdateTupleNum(0);
     return ret;
   }
-  // Open a B+tree with its meta page ID.
-  static Self Open(std::reference_wrapper<PageManager> pgm, pgid_t meta_pgid) {
-    return Self(pgm, meta_pgid, Compare());
-  }
-  // Get the meta page ID so that the caller may optionally save it somewhere
-  // to reopen the B+tree with it in the future.
+  static Self Open(std::reference_wrapper<PageManager> pgm,pgid_t meta_pgid) { return Self(pgm,meta_pgid,Compare()); }
   inline pgid_t MetaPageID() const { return meta_pgid_; }
-  // Free on-disk resources including the meta page.
+  void dfs(pgid_t x,uint8_t y)
+  {
+    if (!y)
+    {
+      auto now=GetLeafPage(x);
+      FreePage(std::move(now));
+      return;
+    }
+    auto now=GetInnerPage(x);
+    for (slotid_t i=0;i<now.SlotNum();i++) dfs(InnerSlotParse(now.Slot(i)).next,y-1);
+    dfs(GetInnerSpecial(now),y-1);
+    FreePage(std::move(now));
+  }
   void Destroy() {
-    DB_ERR("Not implemented!");
+    auto meta=GetMetaPage();
+    if (!IsEmpty()) dfs(Root(),LevelNum());
+    FreePage(std::move(meta));
   }
-  bool IsEmpty() {
-    DB_ERR("Not implemented!");
+  inline bool IsEmpty() { return !TupleNum(); }
+  bool work1(std::string_view key,std::string_view value,bool bo)
+  {
+    LeafSlot hh;hh.key=key;hh.value=value;
+    std::string_view hhh=gao2(hh);
+    if (IsEmpty())
+    {
+      if (bo) return false;
+      auto now=AllocLeafPage();
+      UpdateRoot(now.ID());UpdateLevelNum(0);
+      now.AppendSlotUnchecked(hhh);
+      IncreaseTupleNum(1);
+      return true;
+    }
+    uint8_t level=LevelNum();
+    pgid_t fa[level+1];fa[level]=Root();
+    slotid_t id[level+1];
+    for (uint8_t i=level;i;i--)
+    {
+      auto now=GetInnerPage(fa[i]);id[i]=now.UpperBound(key);
+      if (id[i]<now.SlotNum()) fa[i-1]=InnerSlotParse(now.Slot(id[i])).next;
+      else fa[i-1]=InnerLastPage(now);
+    }
+    auto now=GetLeafPage(fa[0]);
+    id[0]=(!bo)?now.Find1(key):now.Find(key);
+    if (!bo)
+    {
+      if (id[0]>now.SlotNum()) return false;
+      IncreaseTupleNum(1);
+      if (now.IsInsertable(hhh)) { now.InsertBeforeSlot(id[0],hhh);return true; }
+    }
+    else
+    {
+      if (id[0]==now.SlotNum()) return false;
+      if (now.IsReplacable(id[0],hhh)) { now.ReplaceSlot(id[0],hhh);return true; }
+    }
+    auto right=AllocLeafPage();
+    if (!bo) now.SplitInsert(right,id[0],hhh);
+    else now.SplitReplace(right,id[0],hhh);
+    std::string_view y=LeafSmallestKey(right);
+    pgid_t Right=right.ID();
+    bool flag=true;
+    if (level!=0&&now.ID()!=LargestLeaf(GetInnerPage(Root()),level))
+    {
+      pgid_t nxt=GetLeafNext(now);auto NXT=GetLeafPage(nxt);
+      SetLeafNext(right,nxt);SetLeafPrev(NXT,Right);
+    }
+    SetLeafNext(now,Right);SetLeafPrev(right,now.ID());
+    for (uint8_t i=1;i<=level;i++)
+    {
+      auto now=GetInnerPage(fa[i]),right=AllocInnerPage();
+      if (id[i]==now.SlotNum()) SetInnerSpecial(now,Right);
+      else
+      {
+        InnerSlot h2=InnerSlotParse(now.Slot(id[i]));h2.next=Right;
+        now.Replace(id[i],gao1(h2));
+      }
+      InnerSlot h1;h1.next=fa[i-1];h1.strict_upper_bound=y;
+      now.SplitInsert(right,id[i],gao1(h1));
+      if (right.SlotNum()==0) { flag=false;FreePage(std::move(right));break; }
+      SetInnerSpecial(right,GetInnerSpecial(now));
+      Right=InnerSlotParse(right.Slot(0)).next;
+      SetInnerSpecial(now,Right);right.DeleteSlot(0);
+      y=InnerSmallestKey(right,i);Right=right.ID();
+    }
+    if (flag)
+    {
+      UpdateLevelNum(level+1);
+      auto Root=AllocInnerPage();
+      InnerSlot h1;h1.next=fa[level];h1.strict_upper_bound=y;
+      Root.AppendSlotUnchecked(gao1(h1));
+      SetInnerSpecial(Root,Right);
+      UpdateRoot(Root.ID());
+    }
+    return true;
   }
-  /* Insert only if the key does not exists.
-   * Return whether the insertion is successful.
-   */
-  bool Insert(std::string_view key, std::string_view value) {
-    DB_ERR("Not implemented!");
-  }
-  /* Update only if the key already exists.
-   * Return whether the update is successful.
-   */
-  bool Update(std::string_view key, std::string_view value) {
-    DB_ERR("Not implemented!");
-  }
-  // Return the maximum key in the tree.
-  // If no key exists in the tree, return std::nullopt
+  inline bool Insert(std::string_view key,std::string_view value) { return work1(key,value,0); }
+  inline bool Update(std::string_view key,std::string_view value) { return work1(key,value,1); }
   std::optional<std::string> MaxKey() {
-    DB_ERR("Not implemented!");
+    if (IsEmpty()) return std::nullopt;
+    pgid_t Now=Root();
+    if (LevelNum()) Now=LargestLeaf(GetInnerPage(Now),LevelNum());
+    std::string_view str=LeafLargestKey(GetLeafPage(Now));
+    return std::basic_string(str.data(),str.size());
   }
   std::optional<std::string> Get(std::string_view key) {
-    DB_ERR("Not implemented!");
+    if (IsEmpty()) return std::nullopt;
+    pgid_t Now=Root();
+    for (uint8_t i=LevelNum();i;i--)
+    {
+      auto now=GetInnerPage(Now);
+      slotid_t id=now.UpperBound(key);
+      if (id<now.SlotNum()) Now=InnerSlotParse(now.Slot(id)).next;
+      else Now=InnerLastPage(now);
+    }
+    auto now=GetLeafPage(Now);
+    slotid_t id=now.Find(key);
+    if (id==now.SlotNum()) return std::nullopt;
+    std::string_view str=LeafSlotParse(now.Slot(id)).value;
+    return std::basic_string(str.data(),str.size());
   }
-  // Return succeed or not.
-  bool Delete(std::string_view key) {
-    DB_ERR("Not implemented!");
+  #define pii std::pair<bool,std::optional<std::string> >
+  pii work2(std::string_view key) {
+    if (IsEmpty()) return pii(false,std::nullopt);
+    uint8_t level=LevelNum();
+    pgid_t fa[level+1],now=Root();
+    slotid_t ID[level+1];
+    for (uint8_t i=level;i;i--)
+    {
+      fa[i]=now;
+      auto Now=GetInnerPage(now);
+      slotid_t id=Now.UpperBound(key);ID[i]=id;
+      if (id<Now.SlotNum()) now=InnerSlotParse(Now.Slot(id)).next;
+      else now=InnerLastPage(Now);
+    }
+    fa[0]=now;
+    auto Now=GetLeafPage(now);
+    slotid_t id=Now.Find(key);
+    if (id==Now.SlotNum()) return pii(false,std::nullopt);
+    std::string_view str=LeafSlotParse(Now.Slot(id)).value;
+    pii res(true,std::basic_string(str.data(),str.size()));
+    Now.DeleteSlot(id);IncreaseTupleNum(-1);
+    if (id>0) return res;
+    std::string_view y;pgid_t Right=0;
+    int flag=0;
+    if (Now.SlotNum()==0) 
+    {
+      flag=1;
+      if (level!=0&&now!=SmallestLeaf(GetInnerPage(Root()),level)&&now!=LargestLeaf(GetInnerPage(Root()),level))
+      {
+        pgid_t hh1=GetLeafPrev(Now),hh2=GetLeafNext(Now);
+        auto h1=GetLeafPage(hh1),h2=GetLeafPage(hh2);
+        SetLeafNext(h1,hh2);SetLeafPrev(h2,hh1);
+      }
+      FreePage(std::move(Now));
+    }
+    else y=LeafSmallestKey(Now);
+    for (uint8_t i=1;i<=level;i++)
+    {
+      auto Now=GetInnerPage(fa[i]);slotid_t id=ID[i];
+      if (flag==0)
+      {
+        if (id>0)
+        {
+          auto right=AllocInnerPage();
+          InnerSlot h1=InnerSlotParse(Now.Slot(id-1));h1.strict_upper_bound=y;
+          Now.SplitReplace(right,id-1,gao1(h1));
+          if (right.SlotNum()==0) { FreePage(std::move(right));break; }
+          else
+          {
+            flag=2;
+            SetInnerSpecial(right,GetInnerSpecial(Now));
+            Right=InnerSlotParse(right.Slot(0)).next;
+            SetInnerSpecial(Now,Right);
+            right.DeleteSlot(0);
+            y=InnerSmallestKey(right,i);
+            Right=right.ID();
+          }
+        }
+      }
+      else if (flag==1)
+      {
+        if (id<Now.SlotNum())
+        {
+          flag=0;
+          if (id==0) Now.DeleteSlot(id);
+          else
+          {
+            InnerSlot hh=InnerSlotParse(Now.Slot(id-1));
+            hh.strict_upper_bound=InnerSlotParse(Now.Slot(id)).strict_upper_bound;
+            std::string_view hhh=gao1(hh);
+            Now.DeleteSlot(id);Now.DeleteSlot(id-1);
+            Now.InsertBeforeSlot(id-1,hhh);
+            break;
+          }
+          y=InnerSmallestKey(Now,i);
+        }
+        else
+        {
+          if (Now.SlotNum()==0) FreePage(std::move(Now));
+          else
+          {
+            flag=0;
+            slotid_t n=Now.SlotNum();
+            pgid_t nxt=InnerSlotParse(Now.Slot(n-1)).next;
+            Now.DeleteSlot(n-1);
+            SetInnerSpecial(Now,nxt);
+            y=InnerSmallestKey(Now,i);
+          }
+        }
+      }
+      else
+      {
+        auto right=AllocInnerPage();
+        if (id==Now.SlotNum()) SetInnerSpecial(Now,Right);
+        else
+        {
+          InnerSlot h2=InnerSlotParse(Now.Slot(id));h2.next=Right;
+          Now.Replace(id,gao1(h2));
+        }
+        InnerSlot h1;
+        h1.next=fa[i-1];h1.strict_upper_bound=y;
+        Now.SplitInsert(right,id,gao1(h1));
+        if (right.SlotNum()==0) { flag=0;FreePage(std::move(right));break; }
+        SetInnerSpecial(right,GetInnerSpecial(Now));
+        Right=InnerSlotParse(right.Slot(0)).next;
+        SetInnerSpecial(Now,Right);
+        right.DeleteSlot(0);
+        y=InnerSmallestKey(right,i);
+        Right=right.ID();
+      }
+    }
+    if (flag==2)
+    {
+      UpdateLevelNum(level+1);
+      auto Root=AllocInnerPage();
+      InnerSlot h1;h1.next=fa[level];h1.strict_upper_bound=y;
+      Root.AppendSlotUnchecked(gao1(h1));
+      SetInnerSpecial(Root,Right);
+      UpdateRoot(Root.ID());
+    }
+    return res;
   }
-  // Logically equivalent to firstly Get(key) then Delete(key)
-  std::optional<std::string> Take(std::string_view key) {
-    DB_ERR("Not implemented!");
-  }
-  // Return an iterator that iterates from the first element.
+  inline bool Delete(std::string_view key) { return work2(key).first; }
+  inline std::optional<std::string> Take(std::string_view key) { return work2(key).second; }
   Iter Begin() {
-    DB_ERR("Not implemented!");
+    Iter res;res.hhh=&pgm_;res.hh=&comp_;res.is_empty=true;
+    if (IsEmpty()) return res;
+    if (LevelNum()==0) res.mxid_=Root();
+    else res.mxid_=LargestLeaf(GetInnerPage(Root()),LevelNum());
+    res.is_empty=false;
+    if (LevelNum()==0) res.pgid_=Root();
+    else res.pgid_=SmallestLeaf(GetInnerPage(Root()),LevelNum());
+    auto leaf=GetLeafPage(res.pgid_);
+    res.now=0;res.now_mx=leaf.SlotNum();res.pg_st=leaf.as_ptr();
+    res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
+    return res;
   }
-  // Return an iterator that points to the tuple with the minimum key
-  // s.t. key >= "key" in argument
   Iter LowerBound(std::string_view key) {
-    DB_ERR("Not implemented!");
+    Iter res;res.hhh=&pgm_;res.hh=&comp_;res.is_empty=true;
+    if (IsEmpty()) return res;
+    if (LevelNum()==0) res.mxid_=Root();
+    else res.mxid_=LargestLeaf(GetInnerPage(Root()),LevelNum());
+    pgid_t now=Root();
+    for (uint8_t i=LevelNum();i;i--)
+    {
+      auto Now=GetInnerPage(now);
+      slotid_t id=Now.UpperBound(key);
+      if (id<Now.SlotNum()) now=InnerSlotParse(Now.Slot(id)).next;
+      else now=InnerLastPage(Now);
+    }
+    auto Now=GetLeafPage(now);
+    slotid_t id=Now.LowerBound(key);
+    if (id==Now.SlotNum())
+    {
+      if (LevelNum()==0||now==LargestLeaf(GetInnerPage(Root()),LevelNum())) return res;
+      res.is_empty=false;
+      now=GetLeafNext(Now);Now=GetLeafPage(now);
+      res.pgid_=now;res.now=0;
+    }
+    else
+    {
+      res.is_empty=false;
+      res.pgid_=now;res.now=id;
+    }
+    res.now_mx=Now.SlotNum();res.pg_st=Now.as_ptr();
+    res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
+    return res;
   }
-  // Return an iterator that points to the tuple with the minimum key
-  // s.t. key > "key" in argument
   Iter UpperBound(std::string_view key) {
-    DB_ERR("Not implemented!");
+    Iter res;res.hhh=&pgm_;res.hh=&comp_;res.is_empty=true;
+    if (IsEmpty()) return res;
+    if (LevelNum()==0) res.mxid_=Root();
+    else res.mxid_=LargestLeaf(GetInnerPage(Root()),LevelNum());
+    pgid_t now=Root();
+    for (uint8_t i=LevelNum();i;i--)
+    {
+      auto Now=GetInnerPage(now);
+      slotid_t id=Now.UpperBound(key);
+      if (id<Now.SlotNum()) now=InnerSlotParse(Now.Slot(id)).next;
+      else now=InnerLastPage(Now);
+    }
+    auto Now=GetLeafPage(now);
+    slotid_t id=Now.UpperBound(key);
+    if (id==Now.SlotNum())
+    {
+      if (LevelNum()==0||now==LargestLeaf(GetInnerPage(Root()),LevelNum())) return res;
+      res.is_empty=false;
+      now=GetLeafNext(Now);Now=GetLeafPage(now);
+      res.pgid_=now;res.now=0;
+    }
+    else
+    {
+      res.is_empty=false;
+      res.pgid_=now;res.now=id;
+    }
+    res.now_mx=Now.SlotNum();res.pg_st=Now.as_ptr();
+    res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
+    return res;
   }
-  size_t TupleNum() {
-    DB_ERR("Not implemented!");
-  }
+  size_t TupleNum() { return *(pgid_t *)GetMetaPage().Read(8,sizeof(size_t)).data(); }
  private:
   // Here we provide some helper classes/functions that you may use.
 
