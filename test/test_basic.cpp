@@ -60,17 +60,12 @@ TEST(BasicTest, ParserTest) {
   // Return type of predicate must be integer.
   EXPECT_FALSE(db->Execute("select 0 where 0.0;").ParseValid());
   EXPECT_FALSE(db->Execute("select 0 where \'a\';").ParseValid());
-<<<<<<< HEAD
-  EXPECT_FALSE(db->Execute("select sum(1) from values(2, 3.0) as A(a, b) group by a;").ParseValid());
-  EXPECT_FALSE(db->Execute("select sum(1) from values(2, '3') as A(a, b) group by a;").ParseValid());
-=======
   EXPECT_FALSE(
       db->Execute("select sum(1) from values(2, 3.0) as A(a, b) group by a;")
           .ParseValid());
   EXPECT_FALSE(
       db->Execute("select sum(1) from values(2, '3') as A(a, b) group by a;")
           .ParseValid());
->>>>>>> public/main
   // CREATE
   EXPECT_FALSE(db->Execute("create;").ParseValid());
   EXPECT_TRUE(db->Execute("create tablE A (a inT64, b int64);").ParseValid());

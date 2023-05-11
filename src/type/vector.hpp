@@ -171,9 +171,20 @@ class TupleStore {
   TupleStore() = default;
   TupleStore(const OutputSchema& input_schema) : tuple_vec_(input_schema) {}
 
+  void Clear() {
+    pointer_vec_.clear();
+    tuple_vec_.Clear();
+  }
+
   /* Append tuple. */
   void Append(const uint8_t* input) {
     pointer_vec_.push_back(tuple_vec_.Append(input));
+  }
+
+  uint8_t *Append_(const uint8_t* input) {
+    uint8_t *res=tuple_vec_.Append(input);
+    pointer_vec_.push_back(res);
+    return res;
   }
 
   /* Get all tuples. */

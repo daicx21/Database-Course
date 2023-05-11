@@ -7,6 +7,12 @@
 #include "execution/print_executor.hpp"
 #include "execution/project_executor.hpp"
 #include "execution/seqscan_executor.hpp"
+#include "execution/join_executor.hpp"
+#include "execution/hashjoin_executor.hpp"
+#include "execution/aggregate_executor.hpp"
+#include "execution/orderby_executor.hpp"
+#include "execution/limit_executor.hpp"
+#include "execution/distinct_executor.hpp"
 
 namespace wing {
 
@@ -75,6 +81,72 @@ std::unique_ptr<Executor> ExecutorGenerator::Generate(
         Generate(delete_plan->ch_.get(), db, txn_id),
         FKChecker(tab.GetFK(), tab, txn_id, db),
         PKChecker(tab.GetName(), tab.GetHidePKFlag(), txn_id, db), tab);
+  }
+
+  else if (plan->type_ == PlanType::Join) {
+    auto join_plan = static_cast<const JoinPlanNode*>(plan);
+    return std::make_unique<JoinExecutor>(
+      join_plan->predicate_.GenExpr(),
+      join_plan->ch_->output_schema_,
+      join_plan->ch2_->output_schema_,
+      join_plan->output_schema_,
+      Generate(join_plan->ch_.get(), db, txn_id),
+      Generate(join_plan->ch2_.get(), db, txn_id)
+    );
+  }
+
+  else if (plan->type_ == PlanType::HashJoin) {
+    auto hashjoin_plan = static_cast<const HashJoinPlanNode*>(plan);
+    return std::make_unique<HashJoinExecutor>(
+      hashjoin_plan->predicate_.GenExpr(),
+      hashjoin_plan->ch_->output_schema_,
+      hashjoin_plan->ch2_->output_schema_,
+      hashjoin_plan->output_schema_,
+      hashjoin_plan->left_hash_exprs_,
+      hashjoin_plan->right_hash_exprs_,
+      Generate(hashjoin_plan->ch_.get(), db, txn_id),
+      Generate(hashjoin_plan->ch2_.get(), db, txn_id)
+    );
+  }
+
+  else if (plan->type_ == PlanType::Aggregate) {
+    auto aggregate_plan = static_cast<const AggregatePlanNode*>(plan);
+    return std::make_unique<AggregateExecutor>(
+      aggregate_plan->group_predicate_.GenExpr(),
+      aggregate_plan->ch_->output_schema_,
+      aggregate_plan->output_schema_,
+      aggregate_plan->group_by_exprs_,
+      aggregate_plan->output_exprs_,
+      Generate(aggregate_plan->ch_.get(), db, txn_id)
+    );
+  }
+
+  else if (plan->type_ == PlanType::Order) {
+    auto order_plan = static_cast<const OrderByPlanNode*>(plan);
+    return std::make_unique<OrderByExecutor>(
+      order_plan->ch_->output_schema_,
+      order_plan->output_schema_,
+      order_plan->order_by_exprs_,
+      order_plan->order_by_offset_,
+      Generate(order_plan->ch_.get(), db, txn_id)
+    );
+  }
+
+  else if (plan->type_ == PlanType::Limit) {
+    auto limit_plan = static_cast<const LimitPlanNode*>(plan);
+    return std::make_unique<LimitExecutor>(
+      limit_plan->limit_size_,
+      limit_plan->offset_,
+      Generate(limit_plan->ch_.get(), db, txn_id)
+    );
+  }
+
+  else if (plan->type_ == PlanType::Distinct) {
+    auto distinct_plan = static_cast<const DistinctPlanNode*>(plan);
+    return std::make_unique<DistinctExecutor>(
+      distinct_plan->output_schema_,
+      Generate(distinct_plan->ch_.get(), db, txn_id)
+    );
   }
 
   throw DBException("Unsupported plan node.");

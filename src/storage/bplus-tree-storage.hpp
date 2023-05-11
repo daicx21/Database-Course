@@ -8,12 +8,6 @@
 #include "catalog/schema.hpp"
 #include "common/logging.hpp"
 #include "storage.hpp"
-<<<<<<< HEAD
-#include "catalog/schema.hpp"
-#include <iostream>
-#include <compare>
-=======
->>>>>>> public/main
 
 namespace wing {
 
@@ -303,11 +297,6 @@ class BPlusTreeStorage {
     auto blob = Blob::Create(*pgm_);
     schema_.AddTable(schema);
     blob.Rewrite(serde::bin_stream::to_string(schema));
-<<<<<<< HEAD
-    TableMetaPages meta{
-      .data = tree.MetaPageID(),
-      .schema = blob.MetaPageID(),
-=======
 
     auto create_func = [&](auto&& tree) -> std::optional<io::Error> {
       TableMetaPages meta{
@@ -326,7 +315,6 @@ class BPlusTreeStorage {
       if (!ret.second)
         DB_ERR("{}", table_name);
       return std::nullopt;
->>>>>>> public/main
     };
     // Primary key type
     auto pk_type = schema.GetPrimaryKeySchema().type_;
@@ -485,8 +473,4 @@ class BPlusTreeStorage {
 
 }  // namespace wing
 
-<<<<<<< HEAD
-#endif // BPLUS_TREE_STORAGE_H_
-=======
 #endif  // BPLUS_TREE_STORAGE_H_
->>>>>>> public/main
