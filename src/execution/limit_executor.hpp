@@ -25,8 +25,8 @@ class LimitExecutor : public Executor {
   }
 
  private:
-  std::unique_ptr<Executor> ch_;
   size_t limit_size_,offset_,it;
+  std::unique_ptr<Executor> ch_;
 };
 
 }  // namespace wing
