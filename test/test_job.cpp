@@ -65,7 +65,7 @@ static std::pair<size_t, double> GetExecutionTime(wing::Instance& db, const std:
         //   DB_INFO("{}", tuple.ReadInt(0));
         // }
       }
-    }, 100000
+    }, 10000
   ));
   return {tuple_counts, sw.GetTimeInSeconds()};
 }

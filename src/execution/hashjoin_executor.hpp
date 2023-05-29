@@ -40,6 +40,7 @@ class HashJoinExecutor : public Executor {
 	left_=TupleStore(left_input_schema_);
 	left_.Clear();
     mp.clear();
+    cnt=cnt1=cnt2=0;
 	for (auto ch_ret=ch_->Next();ch_ret;ch_ret=ch_->Next())
     {
         auto now=left_.Append_(ch_ret.Data());
@@ -50,12 +51,14 @@ class HashJoinExecutor : public Executor {
             if (types_[i]==RetType::STRING)
             {
                 std::string_view str=hh.ReadStringView();
-                res=utils::Hash(str.data(),str.size(),res);
+                res=utils::Hash(str,res);
             }
-            else res=utils::Hash((const char *)&hh.data_.int_data,8,res);
+            else res=utils::Hash8(hh.data_.int_data,res);
         }
         mp[res].push_back(now);
+        cnt++;
     }
+    //printf("%d\n",cnt);
 	ans=TupleStore(output_schema_);
 	ans.Clear();
 	mergeTuple.resize(output_schema_.Size());
@@ -65,30 +68,51 @@ class HashJoinExecutor : public Executor {
 	while (it==ans.GetPointerVec().end())
 	{
 		auto ch2_ret=ch2_->Next();
+        //if (!ch2_ret) printf("%d %d %d 233\n",cnt,cnt1,cnt2);
+        cnt1++;
 		if (!ch2_ret) return {};
 		ans.Clear();
 		auto hh=mergeTuple.data();
-		if (right_input_schema_.IsRaw()) Tuple::DeSerialize((uint8_t *)(hh+left_input_schema_.Size()),(uint8_t *)ch2_ret.Data(),right_input_schema_.GetCols());
-		else memcpy(hh+left_input_schema_.Size(),ch2_ret.Data(),right_input_schema_.Size()*sizeof(StaticFieldRef));
         size_t res=233;
+        bool flag=false;
         for (int i=0;i<m;i++)
         {
             StaticFieldRef hh=right_functions_[i].Evaluate(ch2_ret);
             if (types_[i]==RetType::STRING)
             {
                 std::string_view str=hh.ReadStringView();
-                res=utils::Hash(str.data(),str.size(),res);
+                res=utils::Hash(str,res);
             }
-            else res=utils::Hash((const char *)&hh.data_.int_data,8,res);
+            else res=utils::Hash8(hh.data_.int_data,res);
         }
-		for (auto &now:mp[res])
+		if (mp.count(res)) for (auto &now:mp[res])
 		{
-			auto ch_ret=InputTuplePtr(now);
-			if (!(predicate_&&predicate_.Evaluate(ch_ret,ch2_ret).ReadInt()==0))
-			{
-				memcpy(hh,now,left_input_schema_.Size()*sizeof(StaticFieldRef));
+            if (predicate_)
+            {
+                auto ch_ret=InputTuplePtr(now);
+                if (!(predicate_.Evaluate(ch_ret,ch2_ret).ReadInt()==0))
+                {
+                    if (!flag)
+                    {
+                        flag=true;
+                        if (right_input_schema_.IsRaw()) Tuple::DeSerialize((uint8_t *)(hh+left_input_schema_.Size()),(uint8_t *)ch2_ret.Data(),right_input_schema_.GetCols());
+		                else memcpy(hh+left_input_schema_.Size(),ch2_ret.Data(),right_input_schema_.Size()*sizeof(StaticFieldRef));
+                    }
+                    memcpy(hh,now,left_input_schema_.Size()*sizeof(StaticFieldRef));
+				    ans.Append((const uint8_t *)hh);
+                }
+            }
+            else
+            {
+                if (!flag)
+                {
+                    flag=true;
+                    if (right_input_schema_.IsRaw()) Tuple::DeSerialize((uint8_t *)(hh+left_input_schema_.Size()),(uint8_t *)ch2_ret.Data(),right_input_schema_.GetCols());
+		            else memcpy(hh+left_input_schema_.Size(),ch2_ret.Data(),right_input_schema_.Size()*sizeof(StaticFieldRef));
+                }
+                memcpy(hh,now,left_input_schema_.Size()*sizeof(StaticFieldRef));
 				ans.Append((const uint8_t *)hh);
-			}
+            }
 		}
 		it=ans.GetPointerVec().begin();
 	}
@@ -108,8 +132,8 @@ class HashJoinExecutor : public Executor {
   TupleStore ans;
   std::vector<uint8_t *>::const_iterator it;
   std::vector<StaticFieldRef> mergeTuple;
-  std::unordered_map<size_t,std::vector<uint8_t *> > mp;
-  int m;
+  std::unordered_map<size_t,std::vector<uint8_t*> > mp;
+  int m,cnt,cnt1,cnt2;
 };
 
 }  // namespace wing

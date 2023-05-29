@@ -6,7 +6,7 @@ namespace wing {
 class CostCalculator{
  public:
   static double HashJoinCost(double build_size, double probe_size) {
-    return build_size*3+probe_size*2;
+    return build_size*2.5+probe_size;
   }
 
   /* Calculate the cost of nestloop join. */

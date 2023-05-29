@@ -112,60 +112,51 @@ class BPlusTree {
    public:
     Iter(const Iter&) = delete;
     Iter& operator=(const Iter&) = delete;
-    Iter(Iter&& iter) {
+    Iter(Iter&& iter):pg(std::move(iter.pg)) {
       //DB_ERR("Not implemented!");
-      pgid_=iter.pgid_;mxid_=iter.mxid_;
-      now=iter.now;now_mx=iter.now_mx;
+      mxid_=iter.mxid_;now=iter.now;
       is_empty=iter.is_empty;
       hhh=iter.hhh;hh=iter.hh;
-      pg_st=iter.pg_st;now_st=iter.now_st;
       iter.hhh=nullptr;iter.hh=nullptr;
-      iter.pg_st=nullptr;iter.now_st=nullptr;
     }
-    Iter() { is_empty=true;cnt=0;pg_st=new char[4096]; }
+    Iter(std::reference_wrapper<PageManager> *hhh_,Compare *hh_):hhh(hhh_),hh(hh_),pg(std::move((*hhh_).get().GetSortedPage(0,LeafSlotKeyCompare((*hh_)),LeafSlotCompare((*hh_))))) { is_empty=true; }
     Iter& operator=(Iter&& iter) {
       //DB_ERR("Not implemented!");
-      pgid_=iter.pgid_;mxid_=iter.mxid_;
-      now=iter.now;now_mx=iter.now_mx;
+      mxid_=iter.mxid_;now=iter.now;
       is_empty=iter.is_empty;
       hhh=iter.hhh;hh=iter.hh;
-      pg_st=iter.pg_st;now_st=iter.now_st;
+      pg=std::move(iter.pg);
       iter.hhh=nullptr;iter.hh=nullptr;
-      iter.pg_st=nullptr;iter.now_st=nullptr;
       return *this;
     }
+    inline LeafPage AllocLeafPage()
+    {
+      auto leaf=(*hhh).get().AllocSortedPage(LeafSlotKeyCompare((*hh)),LeafSlotCompare((*hh)));
+      leaf.Init(sizeof(pgid_t)*2);
+      return leaf;
+    }
     inline LeafPage GetLeafPage(pgid_t pgid) { return (*hhh).get().GetSortedPage(pgid,LeafSlotKeyCompare((*hh)),LeafSlotCompare((*hh))); }
+    inline pgid_t GetLeafNext(LeafPage& leaf) { return *(pgid_t *)leaf.ReadSpecial(sizeof(pgid_t),sizeof(pgid_t)).data(); }
     // Returns the current key-value pair that this iterator currently points
     // to. If this iterator does not point to any key-value pair, then return
     // std::nullopt. The first std::string_view is the key and the second
     // std::string_view is the value.
     std::optional<std::pair<std::string_view,std::string_view>> Cur() {
       if (is_empty) return std::nullopt;
-      std::string_view str(pg_st+*(now_st+now),*(now_st+now-1)-*(now_st+now));
-      LeafSlot slot=LeafSlotParse(str);
+      LeafSlot slot=LeafSlotParse(pg.Slot(now));
       return std::pair<std::string_view,std::string_view>(slot.key,slot.value);
     }
     void Next() {
-      cnt++;
-      //if (mxid_==78837&&pgid_&&pgid_<=78838) printf("%d %d\n",pgid_,mxid_);
-      if (now<now_mx-1) now++;
+      if (now<pg.SlotNum()-1) now++;
       else
       {
-        if (pgid_==mxid_) is_empty=true;
-        else
-        {
-          pgid_=*((const pgid_t *)(pg_st+*(now_st-1))+1);
-          auto leaf=GetLeafPage(pgid_);now=0;
-          now_mx=leaf.SlotNum();
-          memcpy(pg_st,leaf.as_ptr(),4096);
-          now_st=(const pgoff_t *)((const slotid_t *)pg_st+1)+1;
-        }
+        if (pg.ID()==mxid_) is_empty=true;
+        else pg=GetLeafPage(GetLeafNext(pg)),now=0;
       }
     }
-    pgid_t pgid_,mxid_;slotid_t now,now_mx;
-    char *pg_st;
-    const pgoff_t *now_st;
-    bool is_empty;int cnt;
+    LeafPage pg;
+    pgid_t mxid_;slotid_t now;
+    bool is_empty;
     std::reference_wrapper<PageManager> *hhh;
     Compare *hh;
    private:
@@ -432,21 +423,19 @@ class BPlusTree {
   inline bool Delete(std::string_view key) { return work2(key).first; }
   inline std::optional<std::string> Take(std::string_view key) { return work2(key).second; }
   Iter Begin() {
-    Iter res;res.hhh=&pgm_;res.hh=&comp_;res.is_empty=true;
+    Iter res(&pgm_,&comp_);
     if (IsEmpty()) return res;
     if (LevelNum()==0) res.mxid_=Root();
     else res.mxid_=LargestLeaf(GetInnerPage(Root()),LevelNum());
     res.is_empty=false;
-    if (LevelNum()==0) res.pgid_=Root();
-    else res.pgid_=SmallestLeaf(GetInnerPage(Root()),LevelNum());
-    auto leaf=GetLeafPage(res.pgid_);
-    res.now=0;res.now_mx=leaf.SlotNum();
-    memcpy(res.pg_st,leaf.as_ptr(),4096);
-    res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
+    pgid_t pgid_;
+    if (LevelNum()==0) pgid_=Root();
+    else pgid_=SmallestLeaf(GetInnerPage(Root()),LevelNum());
+    res.pg=GetLeafPage(pgid_);res.now=0;
     return res;
   }
   Iter LowerBound(std::string_view key) {
-    Iter res;res.hhh=&pgm_;res.hh=&comp_;res.is_empty=true;
+    Iter res(&pgm_,&comp_);
     if (IsEmpty()) return res;
     if (LevelNum()==0) res.mxid_=Root();
     else res.mxid_=LargestLeaf(GetInnerPage(Root()),LevelNum());
@@ -464,21 +453,17 @@ class BPlusTree {
     {
       if (LevelNum()==0||now==LargestLeaf(GetInnerPage(Root()),LevelNum())) return res;
       res.is_empty=false;
-      now=GetLeafNext(Now);Now=GetLeafPage(now);
-      res.pgid_=now;res.now=0;
+      res.pg=GetLeafPage(GetLeafNext(Now));res.now=0;
     }
     else
     {
       res.is_empty=false;
-      res.pgid_=now;res.now=id;
+      res.pg=std::move(Now);res.now=id;
     }
-    res.now_mx=Now.SlotNum();
-    memcpy(res.pg_st,Now.as_ptr(),4096);
-    res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
     return res;
   }
   Iter UpperBound(std::string_view key) {
-    Iter res;res.hhh=&pgm_;res.hh=&comp_;res.is_empty=true;
+    Iter res(&pgm_,&comp_);
     if (IsEmpty()) return res;
     if (LevelNum()==0) res.mxid_=Root();
     else res.mxid_=LargestLeaf(GetInnerPage(Root()),LevelNum());
@@ -491,22 +476,18 @@ class BPlusTree {
       else now=InnerLastPage(Now);
     }
     auto Now=GetLeafPage(now);
-    slotid_t id=Now.UpperBound(key);
+    slotid_t id=Now.LowerBound(key);
     if (id==Now.SlotNum())
     {
       if (LevelNum()==0||now==LargestLeaf(GetInnerPage(Root()),LevelNum())) return res;
       res.is_empty=false;
-      now=GetLeafNext(Now);Now=GetLeafPage(now);
-      res.pgid_=now;res.now=0;
+      res.pg=GetLeafPage(GetLeafNext(Now));res.now=0;
     }
     else
     {
       res.is_empty=false;
-      res.pgid_=now;res.now=id;
+      res.pg=std::move(Now);res.now=id;
     }
-    res.now_mx=Now.SlotNum();
-    memcpy(res.pg_st,Now.as_ptr(),4096);
-    res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
     return res;
   }
   size_t TupleNum() { return *(pgid_t *)GetMetaPage().Read(8,sizeof(size_t)).data(); }

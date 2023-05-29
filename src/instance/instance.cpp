@@ -285,8 +285,9 @@ class Instance::Impl {
     }
     if (cnt)
     {
-      for (int i=0;i<n;i++) distinct_rate[i]=hp[i].GetDistinctCounts()/(double)cnt;
+      for (size_t i=0;i<n;i++) distinct_rate[i]=hp[i].GetDistinctCounts()/(double)cnt;
     }
+    //printf("%s %d 777\n",table_name.begin(),cnt);
     db_.UpdateStats(table_name,TableStatistics(cnt,std::move(mx),std::move(mn),std::move(distinct_rate),std::move(freq)));
   }
 

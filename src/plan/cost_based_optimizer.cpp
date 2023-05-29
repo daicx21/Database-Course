@@ -146,6 +146,7 @@ static CardEstimator::Summary g[4096];
 std::unique_ptr<PlanNode> GetPlan(int S,DB &db)
 {
   if (cnt[S]==1) return std::move(P[id[S]]);
+  //printf("%d %.10lf 666\n",S,g[S].size_);
   std::unique_ptr<PlanNode> h1=GetPlan(id[S],db),h2=GetPlan(S^id[S],db);
   auto res=std::make_unique<JoinPlanNode>();
   res->ch_=std::move(h1);
@@ -194,7 +195,9 @@ std::unique_ptr<PlanNode> CostBasedOptimizer::Optimize(std::unique_ptr<PlanNode>
         double res=f[j]+f[i^j];
         if (flag) res+=CostCalculator::HashJoinCost(g[j].size_,g[i^j].size_);
         else res+=CostCalculator::NestloopJoinCost(g[j].size_,f[i^j]);
-        if (res<f[i]) f[i]=res,g[i]=CardEstimator::EstimateJoinEq(v,g[j],g[i^j]),id[i]=j;
+        CardEstimator::Summary hh=CardEstimator::EstimateJoinEq(v,g[j],g[i^j]);
+        res+=hh.size_;
+        if (res<f[i]) f[i]=res,g[i]=hh,id[i]=j;
       }
     }
     auto res=GetPlan((1<<n)-1,db);
@@ -205,6 +208,8 @@ std::unique_ptr<PlanNode> CostBasedOptimizer::Optimize(std::unique_ptr<PlanNode>
     R.push_back(std::make_unique<ConvertToHashJoinRule>());
     R.push_back(std::make_unique<ConvertToRangeScanRule>(db));
     plan=Apply(std::move(plan),R);
+    //std::string str=plan->ToString();
+    //std::cout<<str<<std::endl;
     return plan;
   }
   else

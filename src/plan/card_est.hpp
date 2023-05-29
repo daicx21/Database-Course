@@ -162,7 +162,7 @@ class CardEstimator {
     ret.size_=stat->GetTupleNum();
     if (stat->GetTupleNum()==0) return ret;
     double cnt[n];
-    for (uint32_t i=0;i<n;i++)
+    for (int i=0;i<n;i++)
     {
       uint32_t I=tab.Find(schema[i].column_name_).value();
       if (empty1[i]&&empty2[i]) { cnt[i]=stat->GetDistinctRate(I)*ret.size_;continue; }
@@ -195,12 +195,12 @@ class CardEstimator {
       double sum;
       if (schema[i].type_==FieldType::FLOAT64) sum=(r.ReadFloat()-l.ReadFloat())/(stat->GetMax(I).ReadFloat()-stat->GetMin(I).ReadFloat());
       else if (schema[i].type_==FieldType::INT32||schema[i].type_==FieldType::INT64) sum=(double)(r.ReadInt()-l.ReadInt())/(double)(stat->GetMax(I).ReadInt()-stat->GetMin(I).ReadInt());
-      else sum=1;
+      else sum=0.5;
       cnt[i]=sum*stat->GetDistinctRate(I)*ret.size_;
       hh*=sum;
     }
     ret.size_*=hh;
-    for (uint32_t i=0;i<n;i++) ret.distinct_rate_[i].second=std::max(std::min(cnt[i]/ret.size_,1.0),1.0/ret.size_);
+    for (int i=0;i<n;i++) ret.distinct_rate_[i].second=std::max(std::min(cnt[i]/ret.size_,1.0),1.0/ret.size_);
     return ret;
   }
 
@@ -229,14 +229,14 @@ class CardEstimator {
         if (mp[h1]==1&&mp[h2]==2)
         {
           double hh1=build.distinct_rate_[id1[h1]].second,hh2=probe.distinct_rate_[id2[h2]].second;
-          ret.distinct_rate_[id[h1]].second=ret.distinct_rate_[id[h2]].second=std::min(hh1,hh2);
+          ret.distinct_rate_[id[h1]].second=ret.distinct_rate_[id[h2]].second=std::max(hh1,hh2);
           ret.size_/=std::max(build.size_*hh1,probe.size_*hh2);
           break;
         }
         else if (mp[h1]==2&&mp[h2]==1)
         {
           double hh1=build.distinct_rate_[id1[h2]].second,hh2=probe.distinct_rate_[id2[h1]].second;
-          ret.distinct_rate_[id[h1]].second=ret.distinct_rate_[id[h2]].second=std::min(hh1,hh2);
+          ret.distinct_rate_[id[h1]].second=ret.distinct_rate_[id[h2]].second=std::max(hh1,hh2);
           ret.size_/=std::max(build.size_*hh1,probe.size_*hh2);
           break;
         }

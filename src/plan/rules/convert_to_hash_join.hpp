@@ -65,8 +65,9 @@ class ConvertToHashJoinRule : public OptRule {
           ret->right_hash_exprs_.push_back(a.expr_->ch0_->clone());
           ret->left_hash_exprs_.push_back(a.expr_->ch1_->clone());
         }
+        else ret->predicate_.Append(std::move(a));
       }
-      ret->predicate_.Append(std::move(a));
+      else ret->predicate_.Append(std::move(a));
     }
     ret->ch_ = std::move(t_node->ch_);
     ret->ch2_ = std::move(t_node->ch2_);
