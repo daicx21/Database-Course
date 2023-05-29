@@ -242,6 +242,7 @@ public:
   }
   bool ReplaceSlot(slotid_t slotid,std::string_view slot)
   {
+    MarkDirty();
     slotid_t n=SlotNum();
     pgoff_t h1=Starts()[n-1],h2=Starts()[slotid];
     signed_pgoff_t hh=(Ends()[slotid]-h2)-slot.size();

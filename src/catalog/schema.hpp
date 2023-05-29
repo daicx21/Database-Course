@@ -130,6 +130,8 @@ class TableSchema {
 
   size_t Size() const { return columns_.size() + (pk_hide_ ? -1 : 0); }
 
+  size_t Size1() const { return columns_.size(); }
+
  private:
   /* Table name. */
   std::string name_;

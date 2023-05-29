@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "type/field.hpp"
+#include "common/murmurhash.hpp"
 
 namespace wing {
 
@@ -32,7 +33,7 @@ class CountMinSketch {
 class HyperLL {
  public:
   const static size_t kDefaultRegCount = 1024;
-  HyperLL(size_t reg_count) : data_(reg_count) {}
+  HyperLL(size_t reg_count) : N_(reg_count),data_(reg_count) { sum=reg_count; }
   HyperLL() : HyperLL(kDefaultRegCount) {}
   /* Add data into the set. */
   void Add(std::string_view data);
@@ -41,6 +42,7 @@ class HyperLL {
 
  private:
   std::vector<uint8_t> data_;
+  double sum;
   size_t N_{0};
 };
 

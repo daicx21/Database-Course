@@ -367,6 +367,7 @@ class Field {
 
   /* Get std::string_view of Field */
   std::string_view GetView() const {
+    if (type_==FieldType::EMPTY) return std::string_view("233");
     if (type_ == FieldType::CHAR || type_ == FieldType::VARCHAR) {
       // TODO: CHAR type uses another way.
       return ReadStringView();

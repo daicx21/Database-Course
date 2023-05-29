@@ -1,5 +1,6 @@
 #include "instance/instance.hpp"
 
+#include <cctype>
 #include <iostream>
 #include <memory>
 
@@ -12,6 +13,8 @@
 #include "jit/jitexecutor.hpp"
 #include "parser/parser.hpp"
 #include "plan/optimizer.hpp"
+#include "type/field_type.hpp"
+#include "type/static_field.hpp"
 #include "type/tuple.hpp"
 
 namespace wing {
@@ -233,8 +236,58 @@ class Instance::Impl {
 
   // Refresh statistics.
   void Analyze(std::string_view table_name) {
-    // TODO...
-    throw DBException("Not implemented!");
+    auto index=db_.GetDBSchema().Find(table_name);
+    if (!index.has_value())
+    {
+      throw DBException("Analyze error: table \'{}\' doesn't exist.",table_name);
+    }
+    auto &tab=db_.GetDBSchema()[index.value()];
+    size_t n=tab.Size1(),m=tab.Size();
+    std::vector<Field> mx,mn;
+    std::vector<double> distinct_rate;
+    std::vector<CountMinSketch> freq;
+    std::vector<HyperLL> hp;
+    mx.resize(n);mn.resize(n);distinct_rate.resize(n);freq.resize(n);hp.resize(n);
+    auto ret=parser_.Parse(fmt::format("select * from {};",table_name),db_.GetDBSchema());
+    auto p=ret.GetPlan()->clone();
+    auto schema=p->output_schema_;
+    auto exe=GenerateExecutor(p->clone(),0,false);
+    exe.first->Init();
+    size_t cnt=0;
+    for (auto ret=exe.first->Next();ret;ret=exe.first->Next())
+    {
+      for (size_t i=0;i<m;i++)
+      {
+        uint32_t I=tab.Find(schema[i].column_name_).value();
+        Field now;
+        if (tab[I].type_==FieldType::CHAR||tab[I].type_==FieldType::VARCHAR)
+        {
+          now=Field::CreateString(FieldType::VARCHAR,(((const StaticFieldRef*)ret.Data())+i)->ReadStringView());
+        }
+        else if (tab[I].type_==FieldType::FLOAT64)
+        {
+          now=Field::CreateFloat(FieldType::FLOAT64,8,(((const StaticFieldRef*)ret.Data())+i)->ReadFloat());
+        }
+        else
+        {
+          now=Field::CreateInt(FieldType::INT64,8,(((const StaticFieldRef*)ret.Data())+i)->ReadInt());
+        }
+        if (!cnt) mx[I]=mn[I]=now;
+        else
+        {
+          if (now<mn[I]) mn[I]=now;
+          if (now>mx[I]) mx[I]=now;
+        }
+        freq[I].AddCount(now.GetView());
+        hp[I].Add(now.GetView());
+      }
+      cnt++;
+    }
+    if (cnt)
+    {
+      for (int i=0;i<n;i++) distinct_rate[i]=hp[i].GetDistinctCounts()/(double)cnt;
+    }
+    db_.UpdateStats(table_name,TableStatistics(cnt,std::move(mx),std::move(mn),std::move(distinct_rate),std::move(freq)));
   }
 
  private:

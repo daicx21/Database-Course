@@ -13,6 +13,7 @@
 #include "execution/orderby_executor.hpp"
 #include "execution/limit_executor.hpp"
 #include "execution/distinct_executor.hpp"
+#include "plan/plan.hpp"
 
 namespace wing {
 
@@ -146,6 +147,15 @@ std::unique_ptr<Executor> ExecutorGenerator::Generate(
     return std::make_unique<DistinctExecutor>(
       distinct_plan->output_schema_,
       Generate(distinct_plan->ch_.get(), db, txn_id)
+    );
+  }
+
+  else if (plan->type_ == PlanType::RangeScan) {
+    auto rangescan_plan = static_cast<const RangeScanPlanNode*>(plan);
+    return std::make_unique<SeqScanExecutor>(
+      db.GetRangeIterator(txn_id,rangescan_plan->table_name_,std::tuple<std::string_view,bool,bool>(rangescan_plan->range_l_.first.GetView(),rangescan_plan->range_l_.first.type_==FieldType::EMPTY,rangescan_plan->range_l_.second),std::tuple<std::string_view,bool,bool>(rangescan_plan->range_r_.first.GetView(),rangescan_plan->range_r_.first.type_==FieldType::EMPTY,rangescan_plan->range_r_.second)),
+      rangescan_plan->predicate_.GenExpr(),
+      rangescan_plan->output_schema_
     );
   }
 

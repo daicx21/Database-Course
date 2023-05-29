@@ -1,6 +1,11 @@
+#include "catalog/db.hpp"
 #include "plan/expr_utils.hpp"
 #include "plan/optimizer.hpp"
+#include "plan/rules/convert_to_hash_join.hpp"
 #include "plan/rules/push_down_filter.hpp"
+#include "plan/rules/push_down_join_predicate.hpp"
+#include "plan/rules/convert_to_range_scan_rule.hpp"
+#include <iostream>
 
 namespace wing {
 
@@ -31,8 +36,10 @@ std::unique_ptr<PlanNode> LogicalOptimizer::Optimize(
     std::unique_ptr<PlanNode> plan, DB& db) {
   std::vector<std::unique_ptr<OptRule>> R;
   R.push_back(std::make_unique<PushDownFilterRule>());
+  R.push_back(std::make_unique<PushDownJoinPredicateRule>());
+  //R.push_back(std::make_unique<ConvertToHashJoinRule>());
+  R.push_back(std::make_unique<ConvertToRangeScanRule>(db));
   plan = Apply(std::move(plan), R);
-
   return plan;
 }
 

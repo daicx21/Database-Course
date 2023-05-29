@@ -122,7 +122,7 @@ class BPlusTree {
       iter.hhh=nullptr;iter.hh=nullptr;
       iter.pg_st=nullptr;iter.now_st=nullptr;
     }
-    Iter() { is_empty=true; }
+    Iter() { is_empty=true;cnt=0;pg_st=new char[4096]; }
     Iter& operator=(Iter&& iter) {
       //DB_ERR("Not implemented!");
       pgid_=iter.pgid_;mxid_=iter.mxid_;
@@ -135,7 +135,6 @@ class BPlusTree {
       return *this;
     }
     inline LeafPage GetLeafPage(pgid_t pgid) { return (*hhh).get().GetSortedPage(pgid,LeafSlotKeyCompare((*hh)),LeafSlotCompare((*hh))); }
-    inline pgid_t GetLeafNext(LeafPage& leaf) { return *(pgid_t*)leaf.ReadSpecial(sizeof(pgid_t),sizeof(pgid_t)).data(); }
     // Returns the current key-value pair that this iterator currently points
     // to. If this iterator does not point to any key-value pair, then return
     // std::nullopt. The first std::string_view is the key and the second
@@ -147,6 +146,8 @@ class BPlusTree {
       return std::pair<std::string_view,std::string_view>(slot.key,slot.value);
     }
     void Next() {
+      cnt++;
+      //if (mxid_==78837&&pgid_&&pgid_<=78838) printf("%d %d\n",pgid_,mxid_);
       if (now<now_mx-1) now++;
       else
       {
@@ -155,15 +156,16 @@ class BPlusTree {
         {
           pgid_=*((const pgid_t *)(pg_st+*(now_st-1))+1);
           auto leaf=GetLeafPage(pgid_);now=0;
-          now_mx=leaf.SlotNum();pg_st=leaf.as_ptr();
+          now_mx=leaf.SlotNum();
+          memcpy(pg_st,leaf.as_ptr(),4096);
           now_st=(const pgoff_t *)((const slotid_t *)pg_st+1)+1;
         }
       }
     }
     pgid_t pgid_,mxid_;slotid_t now,now_mx;
-    const char *pg_st;
+    char *pg_st;
     const pgoff_t *now_st;
-    bool is_empty;
+    bool is_empty;int cnt;
     std::reference_wrapper<PageManager> *hhh;
     Compare *hh;
    private:
@@ -264,9 +266,9 @@ class BPlusTree {
       now.SplitInsert(right,id[i],gao1(h1));
       if (right.SlotNum()==0) { flag=false;FreePage(std::move(right));break; }
       SetInnerSpecial(right,GetInnerSpecial(now));
-      Right=InnerSlotParse(right.Slot(0)).next;
-      SetInnerSpecial(now,Right);right.DeleteSlot(0);
-      y=InnerSmallestKey(right,i);Right=right.ID();
+      SetInnerSpecial(now,InnerSlotParse(right.Slot(0)).next);
+      right.DeleteSlot(0);y=InnerSmallestKey(right,i);
+      Right=right.ID();
     }
     if (flag)
     {
@@ -276,6 +278,7 @@ class BPlusTree {
       Root.AppendSlotUnchecked(gao1(h1));
       SetInnerSpecial(Root,Right);
       UpdateRoot(Root.ID());
+      level++;
     }
     return true;
   }
@@ -437,7 +440,8 @@ class BPlusTree {
     if (LevelNum()==0) res.pgid_=Root();
     else res.pgid_=SmallestLeaf(GetInnerPage(Root()),LevelNum());
     auto leaf=GetLeafPage(res.pgid_);
-    res.now=0;res.now_mx=leaf.SlotNum();res.pg_st=leaf.as_ptr();
+    res.now=0;res.now_mx=leaf.SlotNum();
+    memcpy(res.pg_st,leaf.as_ptr(),4096);
     res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
     return res;
   }
@@ -468,7 +472,8 @@ class BPlusTree {
       res.is_empty=false;
       res.pgid_=now;res.now=id;
     }
-    res.now_mx=Now.SlotNum();res.pg_st=Now.as_ptr();
+    res.now_mx=Now.SlotNum();
+    memcpy(res.pg_st,Now.as_ptr(),4096);
     res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
     return res;
   }
@@ -499,7 +504,8 @@ class BPlusTree {
       res.is_empty=false;
       res.pgid_=now;res.now=id;
     }
-    res.now_mx=Now.SlotNum();res.pg_st=Now.as_ptr();
+    res.now_mx=Now.SlotNum();
+    memcpy(res.pg_st,Now.as_ptr(),4096);
     res.now_st=(const pgoff_t*)((const slotid_t *)res.pg_st+1)+1;
     return res;
   }

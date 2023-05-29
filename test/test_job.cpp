@@ -65,7 +65,7 @@ static std::pair<size_t, double> GetExecutionTime(wing::Instance& db, const std:
         //   DB_INFO("{}", tuple.ReadInt(0));
         // }
       }
-    }, 10000
+    }, 100000
   ));
   return {tuple_counts, sw.GetTimeInSeconds()};
 }
@@ -244,7 +244,9 @@ static void EnsureDB(std::unique_ptr<wing::Instance>& db) {
     CreateTables(*db);
     DB_INFO("Generating data...");
     GenerateDefaultData(*db);
-    DB_INFO("Complete.");  
+    DB_INFO("Complete.");
+    db=nullptr;
+    db = std::make_unique<wing::Instance>("__imdb", SAKURA_USE_JIT_FLAG);
   } else {
     DB_INFO("Use generated data.");
   }
@@ -303,7 +305,6 @@ TEST(Benchmark, JoinOrder10Q4) {
   std::filesystem::remove("__job_benchmark_result4");
   std::unique_ptr<wing::Instance> db;
   EnsureDB(db);
-
   AnalyzeAllTable(*db);
   std::ofstream out("__job_benchmark_result4");
   auto [tuple_counts, result] = GetExecutionTime(*db, test_sql4);

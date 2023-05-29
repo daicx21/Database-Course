@@ -6,6 +6,7 @@
 
 #include "common/exception.hpp"
 #include "common/logging.hpp"
+#include "type/field_type.hpp"
 
 namespace wing {
 

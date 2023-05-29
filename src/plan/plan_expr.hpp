@@ -57,6 +57,14 @@ class PredicateElement {
   RetType GetRightType() const {
     return expr_->ch1_->ret_type_;
   }
+
+  ExprType GetLeftExprType() const {
+    return expr_->ch0_->type_;
+  }
+
+  ExprType GetRightExprType() const {
+    return expr_->ch1_->type_;
+  }
 };
 
 class PredicateVec {
