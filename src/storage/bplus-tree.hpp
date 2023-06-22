@@ -9,6 +9,7 @@
 #include <stack>
 #include <vector>
 #include <iostream>
+#include <shared_mutex>
 
 #include "page-manager.hpp"
 
@@ -273,8 +274,8 @@ class BPlusTree {
     }
     return true;
   }
-  inline bool Insert(std::string_view key,std::string_view value) { return work1(key,value,0); }
-  inline bool Update(std::string_view key,std::string_view value) { return work1(key,value,1); }
+  inline bool Insert(std::string_view key,std::string_view value) { std::unique_lock<std::shared_mutex> lock(latch_);return work1(key,value,0); }
+  inline bool Update(std::string_view key,std::string_view value) { std::unique_lock<std::shared_mutex> lock(latch_);return work1(key,value,1); }
   std::optional<std::string> MaxKey() {
     if (IsEmpty()) return std::nullopt;
     pgid_t Now=Root();
@@ -283,6 +284,7 @@ class BPlusTree {
     return std::basic_string(str.data(),str.size());
   }
   std::optional<std::string> Get(std::string_view key) {
+    std::shared_lock<std::shared_mutex> lock(latch_);
     if (IsEmpty()) return std::nullopt;
     pgid_t Now=Root();
     for (uint8_t i=LevelNum();i;i--)
@@ -420,7 +422,7 @@ class BPlusTree {
     }
     return res;
   }
-  inline bool Delete(std::string_view key) { return work2(key).first; }
+  inline bool Delete(std::string_view key) { std::unique_lock<std::shared_mutex> lock(latch_);return work2(key).first; }
   inline std::optional<std::string> Take(std::string_view key) { return work2(key).second; }
   Iter Begin() {
     Iter res(&pgm_,&comp_);
@@ -808,6 +810,7 @@ class BPlusTree {
   std::reference_wrapper<PageManager> pgm_;
   pgid_t meta_pgid_;
   Compare comp_;
+  std::shared_mutex latch_;
 };
 
 }

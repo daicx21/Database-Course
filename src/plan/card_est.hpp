@@ -178,7 +178,7 @@ class CardEstimator {
         hh*=sum/ret.size_;
         continue;
       }
-      if ((schema[i].type_==FieldType::INT32||schema[i].type_==FieldType::INT64)&&(r.ReadInt()-l.ReadInt()<=100))
+      if ((schema[i].type_==FieldType::INT32||schema[i].type_==FieldType::INT64)&&(r.ReadInt()-l.ReadInt()<=10000))
       {
         double sum=0;
         for (int64_t j=l.ReadInt()+1-flag1[i];j<=r.ReadInt()-1+flag2[i];j++)
